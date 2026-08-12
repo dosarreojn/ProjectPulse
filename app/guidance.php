@@ -21,8 +21,17 @@ function guidance_portal_bootstrap(): void
 
     $pdo = database();
     $pdo->prepare(
-        'INSERT IGNORE INTO users (username, email, first_name, middle_name, last_name, password_hash, role, is_active)
-         VALUES (:username, :email, :first_name, :middle_name, :last_name, :password_hash, :role, :is_active)'
+        'INSERT INTO users (username, email, first_name, middle_name, last_name, password_hash, role, is_active)
+         VALUES (:username, :email, :first_name, :middle_name, :last_name, :password_hash, :role, :is_active)
+         ON DUPLICATE KEY UPDATE
+            email = VALUES(email),
+            first_name = VALUES(first_name),
+            middle_name = VALUES(middle_name),
+            last_name = VALUES(last_name),
+            password_hash = VALUES(password_hash),
+            role = VALUES(role),
+            is_active = VALUES(is_active),
+            updated_at = CURRENT_TIMESTAMP'
     )->execute([
         'username' => 'guidance_counselor',
         'email' => 'guidance@projectpulse.local',
@@ -32,22 +41,6 @@ function guidance_portal_bootstrap(): void
         'password_hash' => password_hash('guidance123', PASSWORD_DEFAULT),
         'role' => 'guidance',
         'is_active' => 1,
-    ]);
-
-    $pdo->prepare(
-        'UPDATE users
-         SET first_name = :first_name,
-             middle_name = :middle_name,
-             last_name = :last_name,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE username = :username
-           AND role = :role'
-    )->execute([
-        'first_name' => 'Guidance',
-        'middle_name' => null,
-        'last_name' => 'Counselor',
-        'username' => 'guidance_counselor',
-        'role' => 'guidance',
     ]);
 
     if (!auth_table_exists('learners')) {

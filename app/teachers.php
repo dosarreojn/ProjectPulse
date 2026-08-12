@@ -43,33 +43,27 @@ function teacher_management_bootstrap(): void
     );
 
     $userStatement = $pdo->prepare(
-        'INSERT IGNORE INTO users (username, email, first_name, middle_name, last_name, password_hash, role, is_active)
-         VALUES (:username, :email, :first_name, :middle_name, :last_name, :password_hash, :role, :is_active)'
+        'INSERT INTO users (username, email, first_name, middle_name, last_name, password_hash, role, is_active)
+         VALUES (:username, :email, :first_name, :middle_name, :last_name, :password_hash, :role, :is_active)
+         ON DUPLICATE KEY UPDATE
+            email = VALUES(email),
+            first_name = VALUES(first_name),
+            middle_name = VALUES(middle_name),
+            last_name = VALUES(last_name),
+            password_hash = VALUES(password_hash),
+            role = VALUES(role),
+            is_active = VALUES(is_active),
+            updated_at = CURRENT_TIMESTAMP'
     );
     $userStatement->execute([
-        'username' => 'teacher_mabini',
-        'email' => 'teacher.mabini@projectpulse.local',
-        'first_name' => 'Mabini',
-        'middle_name' => 'Demo',
-        'last_name' => 'Teacher',
-        'password_hash' => '$2y$10$MowOCypAlH70pG7wAMix3.cddt8d.B66dIBvCfhptP958vYLiu5bi',
+        'username' => 'mark.lozano@deped.gov.ph',
+        'email' => 'mark.lozano@deped.gov.ph',
+        'first_name' => 'Mark',
+        'middle_name' => 'D',
+        'last_name' => 'Lozano',
+        'password_hash' => password_hash('mark.lozano@deped.gov.ph', PASSWORD_DEFAULT),
         'role' => 'teacher',
         'is_active' => 1,
-    ]);
-    $pdo->prepare(
-        'UPDATE users
-         SET first_name = :first_name,
-             middle_name = :middle_name,
-             last_name = :last_name,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE username = :username
-           AND role = :role'
-    )->execute([
-        'first_name' => 'Mabini',
-        'middle_name' => 'Demo',
-        'last_name' => 'Teacher',
-        'username' => 'teacher_mabini',
-        'role' => 'teacher',
     ]);
 
     $assignmentSeedStatement = $pdo->prepare(
@@ -90,7 +84,7 @@ function teacher_management_bootstrap(): void
          LIMIT 1'
     );
     $assignmentSeedStatement->execute([
-        'username' => 'teacher_mabini',
+        'username' => 'mark.lozano@deped.gov.ph',
         'section_name' => 'Mabini',
     ]);
 

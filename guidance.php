@@ -11,6 +11,7 @@ require_once __DIR__ . '/app/guidance.php';
 require_once __DIR__ . '/app/theme_settings.php';
 
 try {
+    guidance_portal_bootstrap();
     announcements_bootstrap();
     theme_settings_bootstrap();
 } catch (Throwable $exception) {

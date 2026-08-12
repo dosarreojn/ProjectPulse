@@ -5,9 +5,22 @@ require_once __DIR__ . '/config/config.php';
 require_once __DIR__ . '/app/helpers.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/app/auth.php';
+require_once __DIR__ . '/app/teachers.php';
+require_once __DIR__ . '/app/parents.php';
+require_once __DIR__ . '/app/health.php';
+require_once __DIR__ . '/app/guidance.php';
 require_once __DIR__ . '/app/theme_settings.php';
 
-try { theme_settings_bootstrap(); } catch (Throwable $e) {}
+try {
+    // Bootstrap all portals to ensure default users are created.
+    teacher_management_bootstrap();
+    parent_portal_bootstrap();
+    health_portal_bootstrap();
+    guidance_portal_bootstrap();
+    theme_settings_bootstrap();
+} catch (Throwable $e) {
+    // Ignore bootstrap errors on the login page.
+}
 
 start_session();
 
@@ -87,10 +100,12 @@ School Records and Engagement
 <div class="about-card">
 <h4>About Project PULSE</h4>
 <p>
-Project PULSE is an integrated school information system that centralizes learner records,
-attendance, academic performance, health monitoring, and stakeholder engagement through
-secure role-based access for administrators, teachers, parents, guidance counselors,
-and health coordinators.
+List of accounts for testing purposes:<br>
+- Admin: portal_admin / admin123<br>
+- Teacher: mark.lozano@deped.gov.ph / mark.lozano@deped.gov.ph<br>
+- Health Coordinator: health_user / health123<br>
+- Guidance Counselor: guidance_counselor / guidance123<br>
+- Parent: demo_parent / parent123<br>
 </p>
 </div>
 

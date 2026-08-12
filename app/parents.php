@@ -13,13 +13,19 @@ function parent_portal_bootstrap(): void
     $pdo = database();
 
     $statement = $pdo->prepare(
-        'INSERT IGNORE INTO users (username, email, password_hash, role, is_active)
-         VALUES (:username, :email, :password_hash, :role, :is_active)'
+        'INSERT INTO users (username, email, password_hash, role, is_active)
+         VALUES (:username, :email, :password_hash, :role, :is_active)
+         ON DUPLICATE KEY UPDATE
+            email = VALUES(email),
+            password_hash = VALUES(password_hash),
+            role = VALUES(role),
+            is_active = VALUES(is_active),
+            updated_at = CURRENT_TIMESTAMP'
     );
     $statement->execute([
         'username' => 'demo_parent',
         'email' => 'parent@projectpulse.local',
-        'password_hash' => '$2y$10$bRKpueTjVab73zPzrBUyBe.3iRircjMowF66LfB1UuA/QZv4Vw9T.',
+        'password_hash' => password_hash('parent123', PASSWORD_DEFAULT),
         'role' => 'parent',
         'is_active' => 1,
     ]);
