@@ -412,11 +412,11 @@ function health_dashboard_bmi_remarks_rows(array $filters = []): array
     }
 
     $colors = [
-        'Underweight' => '#ee0000',
+        'Underweight' => '#3b82f6',
         'Normal' => '#17663a',
-        'Overweight' => '#b45309',
+        'Overweight' => '#f97316',
         'Obese' => '#a12b2b',
-        'Not measured' => '#52606d',
+        'Not measured' => '#4e3c4a',
     ];
     $rows = [];
 

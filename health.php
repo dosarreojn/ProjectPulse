@@ -305,13 +305,7 @@ $filterLabel = health_portal_filter_label($filters, $allSectionDropdownOptions);
             width: 180px;
             height: 180px;
             border-radius: 50%;
-            background: conic-gradient(
-                var(--success) 0% var(--slice1),
-                var(--warning) var(--slice1) var(--slice2),
-                var(--danger) var(--slice2) var(--slice3),
-                var(--info) var(--slice3) var(--slice4),
-                var(--muted) var(--slice4) 100%
-            );
+            background: var(--gradient, #eee);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -535,17 +529,19 @@ $filterLabel = health_portal_filter_label($filters, $allSectionDropdownOptions);
                         <article class="chart-card">
                             <h3 class="chart-title">BMI Remarks Distribution</h3>
                             <?php
-                                $bmiTotal = array_sum(array_column($dashboardBmiRows, 'total'));
-                                $slice1 = health_portal_percent($dashboardBmiRows[0]['total'] ?? 0, $bmiTotal);
-                                $slice2 = $slice1 + health_portal_percent($dashboardBmiRows[1]['total'] ?? 0, $bmiTotal);
-                                $slice3 = $slice2 + health_portal_percent($dashboardBmiRows[2]['total'] ?? 0, $bmiTotal);
-                                $slice4 = $slice3 + health_portal_percent($dashboardBmiRows[3]['total'] ?? 0, $bmiTotal);
+                            $bmiTotal = array_sum(array_column($dashboardBmiRows, 'total'));
+                            $start = 0.0;
+                            $segments = [];
+                            foreach ($dashboardBmiRows as $index => $bmiRow) {
+                                if ((int) $bmiRow['total'] === 0) continue;
+                                $end = $start + ((int) $bmiRow['total'] / max(1, $bmiTotal) * 360);
+                                $segments[] = escape($bmiRow['color']) . ' ' . number_format($start, 2, '.', '') . 'deg ' . number_format($end, 2, '.', '') . 'deg';
+                                $start = $end;
+                            }
+                            $gradient = 'conic-gradient(' . implode(', ', $segments) . ')';
                             ?>
                             <div class="pie-chart" style="
-                                --slice1: <?php echo escape((string) $slice1); ?>%;
-                                --slice2: <?php echo escape((string) $slice2); ?>%;
-                                --slice3: <?php echo escape((string) $slice3); ?>%;
-                                --slice4: <?php echo escape((string) $slice4); ?>%;
+                                --gradient: <?php echo $gradient; ?>;
                             ">
                                 <span><?php echo escape((string) $bmiTotal); ?> Learners</span>
                             </div>
@@ -672,17 +668,19 @@ $filterLabel = health_portal_filter_label($filters, $allSectionDropdownOptions);
                             <div class="chart-card" style="width: 100%; max-width: none; margin-bottom: 20px;">
                                 <h3 class="chart-title">BMI Remarks for Selected Section</h3>
                                 <?php
-                                    $bmiTotalFiltered = $bmiRemarksSelectedTotal;
-                                    $slice1Filtered = health_portal_percent($bmiRemarksForSelectedFilter[0]['total'] ?? 0, $bmiTotalFiltered);
-                                    $slice2Filtered = $slice1Filtered + health_portal_percent($bmiRemarksForSelectedFilter[1]['total'] ?? 0, $bmiTotalFiltered);
-                                    $slice3Filtered = $slice2Filtered + health_portal_percent($bmiRemarksForSelectedFilter[2]['total'] ?? 0, $bmiTotalFiltered);
-                                    $slice4Filtered = $slice3Filtered + health_portal_percent($bmiRemarksForSelectedFilter[3]['total'] ?? 0, $bmiTotalFiltered);
+                                $bmiTotalFiltered = $bmiRemarksSelectedTotal;
+                                $startFiltered = 0.0;
+                                $segmentsFiltered = [];
+                                foreach ($bmiRemarksForSelectedFilter as $index => $bmiRow) {
+                                    if ((int) $bmiRow['total'] === 0) continue;
+                                    $endFiltered = $startFiltered + ((int) $bmiRow['total'] / max(1, $bmiTotalFiltered) * 360);
+                                    $segmentsFiltered[] = escape($bmiRow['color']) . ' ' . number_format($startFiltered, 2, '.', '') . 'deg ' . number_format($endFiltered, 2, '.', '') . 'deg';
+                                    $startFiltered = $endFiltered;
+                                }
+                                $gradientFiltered = 'conic-gradient(' . implode(', ', $segmentsFiltered) . ')';
                                 ?>
                                 <div class="pie-chart" style="
-                                    --slice1: <?php echo escape((string) $slice1Filtered); ?>%;
-                                    --slice2: <?php echo escape((string) $slice2Filtered); ?>%;
-                                    --slice3: <?php echo escape((string) $slice3Filtered); ?>%;
-                                    --slice4: <?php echo escape((string) $slice4Filtered); ?>%;
+                                    --gradient: <?php echo $gradientFiltered; ?>;
                                 ">
                                     <span><?php echo escape((string) $bmiTotalFiltered); ?> Learners</span>
                                 </div>

@@ -99,11 +99,11 @@ function teacher_format_date(?string $value, string $format = 'M j, Y'): string
 function teacher_section_bmi_remarks_rows(array $learners): array
 {
     $colors = [
-        'Underweight' => '#dd6b20',
+        'Underweight' => '#3b82f6',
         'Normal' => '#17663a',
-        'Overweight' => '#b45309',
+        'Overweight' => '#f97316',
         'Obese' => '#a12b2b',
-        'Not measured' => '#52606d',
+        'Not measured' => '#4e3c4a',
     ];
     $counts = array_fill_keys(array_keys($colors), 0);
 
