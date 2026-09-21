@@ -10,6 +10,7 @@ function teacher_management_bootstrap(): void
         return;
     }
 
+    learner_management_bootstrap();
     auth_bootstrap();
     $pdo = database();
     $pdo->exec(
@@ -31,6 +32,11 @@ function teacher_management_bootstrap(): void
                 ON DELETE CASCADE
         )'
     );
+    $pdo->exec(
+        'ALTER TABLE attendance_records
+         ADD COLUMN IF NOT EXISTS source VARCHAR(100) NULL AFTER remarks'
+    );
+
     teacher_ensure_non_unique_index_for_column(
         'teacher_section_assignments',
         'teacher_user_id',
@@ -282,6 +288,38 @@ function teacher_section_options(): array
          LEFT JOIN users assigned_user ON assigned_user.id = tsa.teacher_user_id
          ORDER BY sy.is_current DESC, sy.start_date DESC, s.grade_level ASC, s.name ASC'
     );
+
+    return $statement->fetchAll();
+}
+
+function teacher_manual_attendance_logs(int $teacherUserId): array
+{
+    $section = teacher_assigned_section($teacherUserId);
+
+    if ($section === null) {
+        return [];
+    }
+
+    $statement = database()->prepare(
+        'SELECT
+            ar.id,
+            ar.attendance_date,
+            ar.remarks,
+            ar.updated_at,
+            l.lrn,
+            CONCAT(l.last_name, \', \', l.first_name) AS learner_name,
+            al.code AS attendance_code,
+            al.label AS attendance_status
+         FROM attendance_records ar
+         INNER JOIN learner_enrollments le ON le.id = ar.learner_enrollment_id
+         INNER JOIN learners l ON l.id = le.learner_id
+         INNER JOIN attendance_legends al ON al.id = ar.legend_id
+         WHERE le.section_id = :section_id
+           AND ar.source = :source
+         ORDER BY ar.updated_at DESC
+         LIMIT 100'
+    );
+    $statement->execute(['section_id' => (int) $section['id'], 'source' => 'Manually recorded by teacher']);
 
     return $statement->fetchAll();
 }
@@ -696,6 +734,47 @@ function teacher_section_parent_links(int $userId): array
     $statement->execute(['teacher_user_id' => $userId]);
 
     return $statement->fetchAll();
+}
+
+function teacher_manual_attendance_save(int $teacherUserId, int $learnerId, string $attendanceDate, string $attendanceCode, string $remarks): void
+{
+    $learner = teacher_accessible_learner($teacherUserId, $learnerId);
+    if ($learner === null) {
+        throw new RuntimeException('Selected learner is not in your section.');
+    }
+
+    $enrollment = learner_enrollment_for_current_school_year((int) $learner['id']);
+    if ($enrollment === null) {
+        throw new RuntimeException('Learner is not enrolled in the current school year.');
+    }
+
+    $pdo = database();
+    $legendStmt = $pdo->prepare('SELECT id FROM attendance_legends WHERE code = :code LIMIT 1');
+    $legendStmt->execute(['code' => $attendanceCode]);
+    $legend = $legendStmt->fetch();
+
+    if ($legend === false) {
+        throw new RuntimeException('Invalid attendance status code.');
+    }
+
+    $amTimeIn = $attendanceCode === 'P' ? '00:00:00' : null;
+    $amTimeOut = $attendanceCode === 'P' ? '00:00:00' : null;
+    $pmTimeIn = $attendanceCode === 'P' ? '00:00:00' : null;
+    $pmTimeOut = $attendanceCode === 'P' ? '00:00:00' : null;
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO attendance_records (learner_enrollment_id, attendance_date, legend_id, remarks, source, am_time_in, am_time_out, pm_time_in, pm_time_out)
+         VALUES (:enroll_id, :date, :legend_id, :remarks, :source, :am_in, :am_out, :pm_in, :pm_out)
+         ON DUPLICATE KEY UPDATE
+            legend_id = VALUES(legend_id),
+            remarks = VALUES(remarks),
+            source = VALUES(source),
+            am_time_in = VALUES(am_time_in),
+            am_time_out = VALUES(am_time_out),
+            pm_time_in = VALUES(pm_time_in),
+            pm_time_out = VALUES(pm_time_out)'
+    );
+    $stmt->execute(['enroll_id' => (int) $enrollment['id'], 'date' => $attendanceDate, 'legend_id' => $legend['id'], 'remarks' => $remarks ?: null, 'source' => 'Manually recorded by teacher', 'am_in' => $amTimeIn, 'am_out' => $amTimeOut, 'pm_in' => $pmTimeIn, 'pm_out' => $pmTimeOut]);
 }
 
 function teacher_accessible_learner(int $userId, int $learnerId): ?array

@@ -98,5 +98,5 @@ define('BASE_URL', projectpulse_detect_base_url());
 define('DB_HOST', '127.0.0.1');
 define('DB_PORT', '3306');
 define('DB_NAME', 'project_pulse');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_USER', 'projectpulse_app');
+define('DB_PASS', 'ProjectPulse@123');

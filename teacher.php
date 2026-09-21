@@ -15,6 +15,7 @@ require_once __DIR__ . '/app/reports.php';
 require_once __DIR__ . '/app/announcements.php';
 require_once __DIR__ . '/app/issues.php';
 require_once __DIR__ . '/app/theme_settings.php';
+require_once __DIR__ . '/attendance.php';
 
 function teacher_module_url(string $module, array $params = []): string
 {
@@ -156,6 +157,7 @@ function teacher_dashboard_learner_health(int $teacherUserId, int $learnerId): ?
 learner_management_bootstrap();
 teacher_management_bootstrap();
 parent_portal_bootstrap();
+attendance_bootstrap();
 grade_book_bootstrap();
 health_portal_bootstrap();
 
@@ -185,6 +187,11 @@ $allowedModules = [
         'eyebrow' => 'Attendance',
         'title' => 'Section Attendance',
         'description' => 'Review and print the monthly SF2-style attendance register for your assigned section.',
+    ],
+    'manual_attendance' => [
+        'eyebrow' => 'Attendance',
+        'title' => 'Manual Attendance',
+        'description' => 'Manually record attendance for learners in your section for a specific date.',
     ],
     'learner_profiles' => [
         'eyebrow' => 'Learner Profile',
@@ -231,6 +238,7 @@ $issueForm = issue_form_defaults();
 $announcementEditId = isset($_GET['edit_announcement_id']) ? (int) $_GET['edit_announcement_id'] : null;
 $profileFormFromPost = false;
 $section = teacher_assigned_section((int) $user['id']);
+$manualAttendanceLogs = [];
 
 if (is_post()) {
     try {
@@ -332,6 +340,45 @@ if (is_post()) {
             issue_report_for_teacher((int) $user['id'], $issueForm);
             flash_set('teacher_settings', 'Issue reported successfully. Thank you for your feedback!');
             redirect('teacher.php?module=settings');
+        }
+
+        if ($formAction === 'manual_attendance_save') {
+            teacher_manual_attendance_save(
+                (int) $user['id'],
+                (int) ($_POST['learner_id'] ?? 0),
+                (string) ($_POST['attendance_date'] ?? ''),
+                (string) ($_POST['attendance_code'] ?? ''),
+                (string) ($_POST['remarks'] ?? '')
+            );
+            flash_set('teacher_dashboard', 'Manual attendance record saved successfully.');
+            redirect('teacher.php?module=manual_attendance');
+        }
+        if ($formAction === 'manual_attendance_bulk_save') {
+            $attendanceDate = (string) ($_POST['attendance_date'] ?? '');
+            $codes = $_POST['attendance_code'] ?? [];
+            $remarksArr = $_POST['remarks'] ?? [];
+
+            foreach ($codes as $learnerIdStr => $code) {
+                $learnerId = (int) $learnerIdStr;
+                $code = (string) $code;
+                $remarks = (string) ($remarksArr[$learnerIdStr] ?? '');
+
+                // Skip empty codes to avoid unintended updates
+                if ($code === '') {
+                    continue;
+                }
+
+                teacher_manual_attendance_save(
+                    (int) $user['id'],
+                    $learnerId,
+                    $attendanceDate,
+                    $code,
+                    $remarks
+                );
+            }
+
+            flash_set('teacher_dashboard', 'Manual attendance records saved successfully.');
+            redirect('teacher.php?module=manual_attendance');
         }
     } catch (Throwable $exception) {
         $errorMessage = trim($exception->getMessage());
@@ -465,6 +512,10 @@ if ($module === 'dashboard') {
     announcements_bootstrap();
     $adminAnnouncements = announcement_list(['role' => 'admin', 'is_published' => 1]);
 }
+if ($module === 'manual_attendance' && $section !== null) {
+    $manualAttendanceLogs = teacher_manual_attendance_logs((int) $user['id']);
+}
+
 $ageReferenceLabel = teacher_format_date($ageReferenceDate, 'F j, Y');
 
 $selectedGradeLearnerId = isset($_GET['grade_learner_id']) ? (int) $_GET['grade_learner_id'] : 0;
@@ -577,6 +628,7 @@ $pageMeta = $allowedModules[$module];
                     <div class="menu-group">
                         <p class="menu-group-title">Attendance</p>
                         <a href="<?php echo escape(teacher_module_url('section_attendance')); ?>" class="submenu-link<?php echo $module === 'section_attendance' ? ' active' : ''; ?>">Section Attendance</a>
+                        <a href="<?php echo escape(teacher_module_url('manual_attendance')); ?>" class="submenu-link<?php echo $module === 'manual_attendance' ? ' active' : ''; ?>">Manual Attendance</a>
                         <a href="<?php echo escape(route_url('face_enrollment.php')); ?>" class="submenu-link">Face Enrollment</a>
                     </div>
 
@@ -1100,7 +1152,7 @@ $pageMeta = $allowedModules[$module];
                             <p>Use an existing parent username or email and attach it to a learner in your section.</p>
                         </div>
 
-                        <form method="post" class="report-filter-grid">
+                        <form method="post" class="teacher-form-grid">
                             <input type="hidden" name="csrf_token" value="<?php echo escape(csrf_token()); ?>">
                             <input type="hidden" name="form_action" value="link_existing_parent">
 
@@ -1399,7 +1451,7 @@ $pageMeta = $allowedModules[$module];
                                 <h2>Summary of Attendance and Enrollment</h2>
                                 <p>For the month of <?php echo escape($sectionAttendanceReport['month_label'] . ' ' . $sectionAttendanceReport['year_label']); ?></p>
                             </div>
-                            <div class="table-shell">
+                            <div class="table-shell" style="grid-column: 1 / -1;">
                                 <table class="records-table">
                                     <thead>
                                         <tr>
@@ -1463,6 +1515,105 @@ $pageMeta = $allowedModules[$module];
                             </div>
                         </article>
                     <?php endif; ?>
+
+                <?php elseif ($module === 'manual_attendance'): ?>
+                    <article class="teacher-panel-card">
+                        <div class="panel-heading">
+                            <h2>Manual Attendance</h2>
+                            <p>Record attendance for a learner in your assigned section.</p>
+                        </div>
+
+                        <form method="post">
+                            <input type="hidden" name="csrf_token" value="<?php echo escape(csrf_token()); ?>">
+                            <input type="hidden" name="form_action" value="manual_attendance_bulk_save">
+
+                            <div class="teacher-form-grid" style="margin-bottom: 1rem;">
+                                <div>
+                                    <label for="bulk_attendance_date">Date</label>
+                                    <input id="bulk_attendance_date" name="attendance_date" type="date" value="<?php echo escape(date('Y-m-d')); ?>" required>
+                                </div>
+
+                                <div class="learner-form-actions">
+                                    <button type="submit" class="primary-button">Save All Changes</button>
+                                </div>
+                            </div>
+
+                            <div class="table-shell" style="margin-top: 1rem;">
+                                <table class="records-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Learner</th>
+                                            <th>LRN</th>
+                                            <th>Status</th>
+                                            <th>Remarks</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php if ($sectionLearners === []): ?>
+                                            <tr><td colspan="4" class="empty-row">No learners are assigned to your section yet.</td></tr>
+                                        <?php else: ?>
+                                            <?php foreach ($sectionLearners as $learner): ?>
+                                                <tr>
+                                                    <td><?php echo escape($learner['learner_name']); ?></td>
+                                                    <td><?php echo escape($learner['lrn']); ?></td>
+                                                    <td style="width: 140px;">
+                                                        <select name="attendance_code[<?php echo (int) $learner['id']; ?>]" class="table-input-slim">
+                                                            <option value="">(no change)</option>
+                                                            <option value="P">P</option>
+                                                            <option value="A">A</option>
+                                                            <option value="E">E</option>
+                                                        </select>
+                                                    </td>
+                                                    <td>
+                                                        <input type="text" name="remarks[<?php echo (int) $learner['id']; ?>]" placeholder="Optional remarks" class="table-input-slim">
+                                                    </td>
+                                                </tr>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </form>
+                    </article>
+
+                    <article class="teacher-panel-card">
+                        <div class="panel-heading compact-heading">
+                            <h2>Recent Manual Entries</h2>
+                            <p>Showing the last 100 manual attendance records you have saved.</p>
+                        </div>
+                        <div class="table-shell">
+                            <table class="records-table">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>LRN</th>
+                                        <th>Learner</th>
+                                        <th>Code</th>
+                                        <th>Status</th>
+                                        <th>Remarks</th>
+                                        <th>Recorded On</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if ($manualAttendanceLogs === []): ?>
+                                        <tr><td colspan="7" class="empty-row">No manual attendance records yet.</td></tr>
+                                    <?php else: ?>
+                                        <?php foreach ($manualAttendanceLogs as $log): ?>
+                                            <tr>
+                                                <td><?php echo escape(teacher_format_date($log['attendance_date'], 'Y-m-d')); ?></td>
+                                                <td><?php echo escape($log['lrn']); ?></td>
+                                                <td><?php echo escape($log['learner_name']); ?></td>
+                                                <td><?php echo escape($log['attendance_code']); ?></td>
+                                                <td><span class="table-status"><?php echo escape($log['attendance_status']); ?></span></td>
+                                                <td><?php echo escape($log['remarks'] ?? '-'); ?></td>
+                                                <td><?php echo escape(teacher_format_date($log['updated_at'], 'M j, Y g:i A')); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
 
                 <?php elseif ($module === 'grades_import'): ?>
                     <article class="teacher-panel-card">

@@ -2,229 +2,121 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/config/config.php';
-require_once __DIR__ . '/app/helpers.php';
-require_once __DIR__ . '/config/database.php';
-require_once __DIR__ . '/app/auth.php';
-require_once __DIR__ . '/app/attendance_settings.php';
-require_once __DIR__ . '/app/theme_settings.php';
+function attendance_bootstrap(): void
+{
+    static $bootstrapped = false;
 
-$user = require_roles(['attendance', 'admin']);
-$scanMode = attendance_scan_mode_details();
-$canManageScanMode = attendance_can_manage_scan_mode($user);
-theme_settings_bootstrap();
-?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <?php echo theme_stylesheet_markup(); ?>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo escape(APP_NAME); ?> Attendance</title>
-    <link rel="stylesheet" href="<?php echo escape(asset_url('assets/css/app.css')); ?>">
-</head>
-<body class="dashboard-body">
-    <main class="dashboard-shell fullscreen-shell">
-        <header class="topbar">
-            <div class="header-title-block">
-                <img class="school-logo" src="<?php echo escape(school_logo_url()); ?>" alt="School logo">
-                <div class="header-copy">
-                    <p class="eyebrow">Attendance Module</p>
-                    <h1>Attendance Scanner</h1>
-                </div>
-            </div>
+    if ($bootstrapped) {
+        return;
+    }
 
-            <div class="topbar-actions">
-                <p class="signed-in-as">Signed in as <?php echo escape($user['username']); ?></p>
-                <?php if (($user['role'] ?? '') === 'admin'): ?>
-                    <a href="<?php echo escape(route_url('admin.php')); ?>" class="secondary-link">Admin Panel</a>
-                <?php endif; ?>
-                <a href="<?php echo escape(route_url('change_password.php')); ?>" class="secondary-link">Change Password</a>
-                <a href="<?php echo escape(route_url('logout.php')); ?>" class="secondary-link">Logout</a>
-            </div>
-        </header>
+    $pdo = database();
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS attendance_legends (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            code VARCHAR(10) NOT NULL UNIQUE,
+            label VARCHAR(50) NOT NULL,
+            counts_as_present TINYINT(1) NOT NULL DEFAULT 0,
+            is_manual_only TINYINT(1) NOT NULL DEFAULT 0
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
 
-        <section class="dashboard-grid expanded">
-            <article class="status-panel compact">
-                <div class="picture-box">
-                    <img
-                        id="learner-photo"
-                        class="learner-photo"
-                        src="<?php echo escape(asset_url('assets/images/learners/logorotate.gif')); ?>"
-                        alt="Learner photo"
-                    >
-                </div>
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS attendance_records (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            learner_enrollment_id INT UNSIGNED NOT NULL,
+            attendance_date DATE NOT NULL,
+            legend_id INT UNSIGNED NULL,
+            am_time_in TIME NULL,
+            am_time_out TIME NULL,
+            pm_time_in TIME NULL,
+            pm_time_out TIME NULL,
+            remarks VARCHAR(255) NULL,
+            source VARCHAR(100) NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_enrollment_date (learner_enrollment_id, attendance_date),
+            CONSTRAINT fk_attendance_enrollment
+                FOREIGN KEY (learner_enrollment_id) REFERENCES learner_enrollments(id)
+                ON DELETE CASCADE,
+            CONSTRAINT fk_attendance_legend
+                FOREIGN KEY (legend_id) REFERENCES attendance_legends(id)
+                ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
 
-                <div class="clock-panel">
-                    <p class="meta-label">Current Time</p>
-                    <p id="live-time" class="clock-value"><?php echo escape(date('h:i:s A')); ?></p>
-                    <p id="live-date" class="date-value"><?php echo escape(date('l, F j, Y')); ?></p>
-                </div>
+    $pdo->exec(
+        'CREATE TABLE IF NOT EXISTS attendance_scan_logs (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            attendance_record_id INT UNSIGNED NULL,
+            learner_enrollment_id INT UNSIGNED NOT NULL,
+            legend_id INT UNSIGNED NULL,
+            slot_key VARCHAR(20) NOT NULL,
+            slot_label VARCHAR(50) NOT NULL,
+            scanned_at DATETIME NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT fk_attendance_log_record
+                FOREIGN KEY (attendance_record_id) REFERENCES attendance_records(id)
+                ON DELETE CASCADE,
+            CONSTRAINT fk_attendance_log_enrollment
+                FOREIGN KEY (learner_enrollment_id) REFERENCES learner_enrollments(id)
+                ON DELETE CASCADE,
+            CONSTRAINT fk_attendance_log_legend
+                FOREIGN KEY (legend_id) REFERENCES attendance_legends(id)
+                ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
+    );
 
-                    <div class="legend-panel">
-                        <p class="meta-label dark">Attendance Legend</p>
-                        <p class="scan-mode-note">Present requires all four scans. A complete AM or PM session counts as 0.5 day; arrivals after 7:30 AM or 1:00 PM are late.</p>
-                        <div class="legend-list">
-                        <span class="legend-chip success">P Present</span>
-                        <span class="legend-chip warning">L Late</span>
-                        <span class="legend-chip danger">A Absent</span>
-                        <span class="legend-chip info">E Excused</span>
-                    </div>
-                </div>
-            </article>
+    $bootstrapped = true;
+}
 
-            <article class="scanner-panel expanded">
-                <section class="scan-head">
-                    <div class="panel-heading no-gap">
-                        <h2>Scan LRN</h2>
-                        <p>Keep focus here while learner details stay visible.</p>
-                    </div>
+function manual_attendance_save(int $learnerEnrollmentId, string $attendanceDate, string $attendanceCode, string $remarks, string $source): void
+{
+    attendance_bootstrap();
+    $pdo = database();
 
-                    <div class="search-wrap inline-search">
-                        <label for="lrn-search">LRN</label>
-                        <input
-                            id="lrn-search"
-                            type="text"
-                            inputmode="numeric"
-                            autocomplete="off"
-                            placeholder="Enter or scan learner LRN"
-                            maxlength="12"
-                            autofocus
-                        >
-                    </div>
-                </section>
+    $legendStmt = $pdo->prepare('SELECT id FROM attendance_legends WHERE code = :code LIMIT 1');
+    $legendStmt->execute(['code' => $attendanceCode]);
+    $legend = $legendStmt->fetch();
 
-                <section class="scan-mode-panel">
-                    <div class="scan-mode-copy">
-                        <p class="meta-label dark">Attendance Scan Mode</p>
-                        <div class="scan-mode-summary">
-                            <strong id="scan-mode-value"><?php echo escape($scanMode['label']); ?></strong>
-                            <p id="scan-mode-description"><?php echo escape($scanMode['description']); ?></p>
-                        </div>
-                        <p class="scan-mode-note">
-                            <?php if ($canManageScanMode): ?>
-                                Admin control: switch modes for all attendance stations.
-                            <?php else: ?>
-                                Admin-controlled setting. Attendance users can view the current mode only.
-                            <?php endif; ?>
-                        </p>
-                    </div>
+    if ($legend === false) {
+        throw new RuntimeException('Invalid attendance status code.');
+    }
 
-                    <div class="scan-mode-toggle-wrap">
-                        <label class="mode-switch<?php echo $canManageScanMode ? '' : ' is-readonly'; ?>" for="scan-mode-toggle">
-                            <input
-                                id="scan-mode-toggle"
-                                class="mode-switch-input"
-                                type="checkbox"
-                                <?php echo $scanMode['key'] === 'am_pm_sequence' ? 'checked' : ''; ?>
-                                <?php echo $canManageScanMode ? '' : 'disabled'; ?>
-                            >
-                            <span class="mode-switch-track">
-                                <span class="mode-switch-thumb"></span>
-                            </span>
-                            <span class="mode-switch-labels">
-                                <span>Strict</span>
-                                <span>AM/PM</span>
-                            </span>
-                        </label>
-                        <p id="scan-mode-feedback" class="scan-mode-feedback"></p>
-                    </div>
-                </section>
+    $amTimeIn = null;
+    $amTimeOut = null;
+    $pmTimeIn = null;
+    $pmTimeOut = null;
 
-                <section id="learner-card" class="learner-card full-panel is-empty">
-                    <div class="learner-header-row">
-                        <div class="learner-summary">
-                            <h3 id="learner-name">No learner selected</h3>
-                            <p id="learner-lrn">Search by LRN to load learner information.</p>
-                        </div>
-                    </div>
+    if ($attendanceCode === 'P') {
+        $amTimeIn = '00:00:00';
+        $amTimeOut = '00:00:00';
+        $pmTimeIn = '00:00:00';
+        $pmTimeOut = '00:00:00';
+    }
 
-                    <dl class="detail-grid wide">
-                        <div>
-                            <dt>Grade Level</dt>
-                            <dd id="learner-grade">-</dd>
-                        </div>
-                        <div>
-                            <dt>Section</dt>
-                            <dd id="learner-section">-</dd>
-                        </div>
-                        <div>
-                            <dt>School Year</dt>
-                            <dd id="learner-school-year">-</dd>
-                        </div>
-                        <div>
-                            <dt>Today's Status</dt>
-                            <dd id="learner-status">No record yet</dd>
-                        </div>
-                        <div>
-                            <dt>AM Time In</dt>
-                            <dd id="learner-am-time-in">-</dd>
-                        </div>
-                        <div>
-                            <dt>AM Time Out</dt>
-                            <dd id="learner-am-time-out">-</dd>
-                        </div>
-                        <div>
-                            <dt>PM Time In</dt>
-                            <dd id="learner-pm-time-in">-</dd>
-                        </div>
-                        <div>
-                            <dt>PM Time Out</dt>
-                            <dd id="learner-pm-time-out">-</dd>
-                        </div>
-                        
-                    </dl>
-
-                    <div class="record-grid">
-                        <section class="record-panel">
-                            <div class="panel-heading compact-heading">
-                                <h2>Recent Attendance</h2>
-                                <p>The latest records remain visible after every scan.</p>
-                            </div>
-
-                            <div class="table-shell attendance-log-shell">
-                                <table class="records-table attendance-log-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Date</th>
-                                            <th>Time</th>
-                                            <th>Learner</th>
-                                            <th>LRN</th>
-                                            <th>Grade / Section</th>
-                                            <th>Log Entry</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="attendance-logs-body">
-                                        <tr>
-                                            <td colspan="6" class="empty-row">No attendance records to display yet.</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </section>
-                    </div>
-                </section>
-            </article>
-        </section>
-    </main>
-
-    <script>
-        window.ProjectPulse = {
-            csrfToken: '<?php echo escape(csrf_token()); ?>',
-            lookupUrl: '<?php echo escape(route_url('api/learner_lookup.php')); ?>',
-            attendanceEventUrl: '<?php echo escape(route_url('api/attendance_event.php')); ?>',
-            attendanceLogsUrl: '<?php echo escape(route_url('api/attendance_logs.php')); ?>',
-            scanModeUpdateUrl: '<?php echo escape(route_url('api/attendance_mode.php')); ?>',
-            learnerPhotoBaseUrl: '<?php echo escape(asset_url('assets/images/learners/')); ?>',
-            defaultLearnerPhotoUrl: '<?php echo escape(asset_url('assets/images/learners/logorotate.gif')); ?>',
-            scanMode: {
-                key: '<?php echo escape($scanMode['key']); ?>',
-                label: '<?php echo escape($scanMode['label']); ?>',
-                description: '<?php echo escape($scanMode['description']); ?>',
-                canEdit: <?php echo $canManageScanMode ? 'true' : 'false'; ?>
-            }
-        };
-    </script>
-    <script src="<?php echo escape(asset_url('assets/js/attendance.js')); ?>"></script>
-</body>
-</html>
+    $stmt = $pdo->prepare(
+        'INSERT INTO attendance_records (learner_enrollment_id, attendance_date, legend_id, remarks, source, am_time_in, am_time_out, pm_time_in, pm_time_out)
+         VALUES (:enroll_id, :date, :legend_id, :remarks, :source, :am_in, :am_out, :pm_in, :pm_out)
+         ON DUPLICATE KEY UPDATE
+            legend_id = VALUES(legend_id),
+            remarks = VALUES(remarks),
+            source = VALUES(source),
+            am_time_in = VALUES(am_time_in),
+            am_time_out = VALUES(am_time_out),
+            pm_time_in = VALUES(pm_time_in),
+            pm_time_out = VALUES(pm_time_out),
+            updated_at = CURRENT_TIMESTAMP'
+    );
+    $stmt->execute([
+        'enroll_id' => $learnerEnrollmentId,
+        'date' => $attendanceDate,
+        'legend_id' => $legend['id'],
+        'remarks' => $remarks !== '' ? $remarks : null,
+        'source' => $source,
+        'am_in' => $amTimeIn,
+        'am_out' => $amTimeOut,
+        'pm_in' => $pmTimeIn,
+        'pm_out' => $pmTimeOut,
+    ]);
+}
